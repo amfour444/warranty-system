@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { addMonths, format, parseISO } from 'date-fns';
 import { 
   Save, ArrowLeft, QrCode, Loader2, Calendar, 
-  Package, User, Store, ShieldCheck, X 
+  Package, User, Store, ShieldCheck, X, ChevronDown 
 } from 'lucide-react';
 import Link from 'next/link';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
-// ฟังก์ชันแปลงวันที่ไทยสำหรับแสดงผล (ไม่ได้ใช้คำนวณ)
+// ฟังก์ชันแปลงวันที่ไทยสำหรับแสดงผล
 const formatDateThai = (dateString: string) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
@@ -25,17 +25,12 @@ export default function AddOrder() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  
+  // State สำหรับ Dropdown
   const [storeOptions, setStoreOptions] = useState<any[]>([]);
+  const [productPresets, setProductPresets] = useState<any[]>([]);
 
-  // โหลดร้านค้า
-  useEffect(() => {
-    const fetchStores = async () => {
-      const { data } = await supabase.from('stores').select('*').order('name');
-      if (data) setStoreOptions(data);
-    };
-    fetchStores();
-  }, []);
-
+  // State ฟอร์มข้อมูล
   const [formData, setFormData] = useState({
     order_number: '',
     product_name: '',
@@ -49,7 +44,36 @@ export default function AddOrder() {
     expiry_date: format(addMonths(new Date(), 12), 'yyyy-MM-dd')
   });
 
-  // คำนวณวันหมดอายุเมื่อเปลี่ยนวันที่ซื้อหรือระยะเวลา
+  // โหลดข้อมูล Dropdown ต่างๆ เมื่อเข้าหน้าเว็บ
+  useEffect(() => {
+    const fetchDropdowns = async () => {
+      // 1. โหลดร้านค้า
+      const { data: stores } = await supabase.from('stores').select('*').order('name');
+      if (stores) setStoreOptions(stores);
+
+      // 2. โหลดสินค้ามาตรฐาน (Product Presets)
+      const { data: presets } = await supabase.from('product_presets').select('*').order('name');
+      if (presets) setProductPresets(presets);
+    };
+    fetchDropdowns();
+  }, []);
+
+  // ฟังก์ชันเมื่อเลือกสินค้าจาก Dropdown -> ให้เติมชื่อและรุ่นอัตโนมัติ
+  const handleSelectPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    if (!selectedId) return;
+
+    const item = productPresets.find(p => p.id.toString() === selectedId);
+    if (item) {
+      setFormData(prev => ({
+        ...prev,
+        product_name: item.name,
+        model: item.model || ''
+      }));
+    }
+  };
+
+  // คำนวณวันหมดอายุ
   const handleDateCalculation = (field: string, value: string) => {
     let newData = { ...formData, [field]: value };
     if (newData.purchase_date && newData.warranty_months) {
@@ -75,12 +99,11 @@ export default function AddOrder() {
     }, 300);
   };
 
-  // --- ส่วนบันทึกข้อมูล (ที่มีการเช็คเลขซ้ำ) ---
+  // บันทึกข้อมูล
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // 1. เตรียมข้อมูล (ตัดช่องว่างหน้าหลัง)
     const cleanSN = formData.serial_number.trim();
 
     if (!cleanSN) {
@@ -90,31 +113,29 @@ export default function AddOrder() {
     }
 
     try {
-        // 2. เช็คว่ามีเลขนี้ในระบบหรือยัง?
+        // 1. เช็คเลขซ้ำ
         const { data: duplicateCheck, error: checkError } = await supabase
             .from('warranties')
             .select('id')
-            .eq('serial_number', cleanSN); // เช็คเลขที่ตัดช่องว่างแล้ว
+            .eq('serial_number', cleanSN);
 
         if (checkError) throw checkError;
 
-        // 3. ถ้าเจอข้อมูล (Array ไม่ว่าง) แปลว่าซ้ำ
         if (duplicateCheck && duplicateCheck.length > 0) {
             alert(`❌ ไม่สามารถบันทึกได้\n\nSerial Number: ${cleanSN}\nมีอยู่ในระบบแล้วครับ!`);
             setLoading(false);
-            return; // จบการทำงานทันที
+            return;
         }
 
-        // 4. ถ้าไม่ซ้ำ ให้บันทึกเลย
+        // 2. บันทึก
         const { error: insertError } = await supabase.from('warranties').insert([{
             ...formData,
-            serial_number: cleanSN, // บันทึกตัวที่ตัดช่องว่างแล้ว
+            serial_number: cleanSN,
             warranty_months: parseInt(formData.warranty_months)
         }]);
 
         if (insertError) throw insertError;
 
-        // 5. สำเร็จ
         alert('บันทึกข้อมูลเรียบร้อย ✅');
         router.push('/admin/dashboard');
         router.refresh();
@@ -129,23 +150,56 @@ export default function AddOrder() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 pb-12">
       <div className="max-w-3xl mx-auto space-y-6">
+        
+        {/* Header */}
         <div className="flex items-center gap-4">
           <Link href="/admin/dashboard" className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 transition-all shadow-sm"><ArrowLeft size={20} /></Link>
           <div><h1 className="text-2xl font-black text-slate-800">New Order</h1><p className="text-slate-400 text-sm">เพิ่มรายการรับประกันใหม่</p></div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Product Info */}
+          
+          {/* Card 1: Product Info */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><Package size={18} className="text-blue-500"/> Product Info</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ชื่อสินค้า</label><input required type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} /></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">รุ่น (Model)</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} /></div>
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center border-b border-slate-50 pb-3 gap-2">
+               <h3 className="font-bold text-slate-800 flex items-center gap-2"><Package size={18} className="text-blue-500"/> Product Info</h3>
+               
+               {/* Dropdown เลือกสินค้ามาตรฐาน */}
+               <div className="relative group">
+                 <select 
+                   onChange={handleSelectPreset} 
+                   className="appearance-none bg-blue-50 text-blue-600 text-xs font-bold py-2 pl-3 pr-8 rounded-lg border border-blue-100 outline-none cursor-pointer hover:bg-blue-100 transition-colors w-full md:w-auto"
+                   defaultValue=""
+                 >
+                   <option value="" disabled>-- เลือกสินค้ามาตรฐาน --</option>
+                   {productPresets.map(p => (
+                     <option key={p.id} value={p.id}>{p.name} {p.model ? `(${p.model})` : ''}</option>
+                   ))}
+                 </select>
+                 <ChevronDown size={14} className="absolute right-2 top-2.5 text-blue-400 pointer-events-none"/>
+               </div>
             </div>
-            <div className="space-y-1 relative"><label className="text-xs font-bold text-slate-500 uppercase">Serial Number (S/N)</label><div className="flex gap-2"><input required type="text" className="w-full p-3 pl-4 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-mono font-bold" value={formData.serial_number} onChange={e => setFormData({...formData, serial_number: e.target.value})} /><button type="button" onClick={startScanner} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white"><QrCode size={20} /></button></div></div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-500 uppercase">ชื่อสินค้า</label>
+                 <input required type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} />
+               </div>
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-500 uppercase">รุ่น (Model)</label>
+                 <input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+               </div>
+            </div>
+            <div className="space-y-1 relative">
+                <label className="text-xs font-bold text-slate-500 uppercase">Serial Number (S/N)</label>
+                <div className="flex gap-2">
+                    <input required type="text" className="w-full p-3 pl-4 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-mono font-bold" value={formData.serial_number} onChange={e => setFormData({...formData, serial_number: e.target.value})} />
+                    <button type="button" onClick={startScanner} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-colors"><QrCode size={20} /></button>
+                </div>
+            </div>
           </div>
 
-          {/* Warranty Details */}
+          {/* Card 2: Warranty Details */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-50 rounded-bl-[3rem] -mr-4 -mt-4 z-0"></div>
             <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3 relative z-10"><ShieldCheck size={18} className="text-emerald-500"/> Warranty Details</h3>
@@ -156,7 +210,6 @@ export default function AddOrder() {
                    <input required type="date" className="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.purchase_date} onChange={e => handleDateCalculation('purchase_date', e.target.value)} />
                    <Calendar className="absolute left-3 top-3 text-slate-400" size={18}/>
                  </div>
-                 {/* แสดงวันที่ไทย */}
                  <p className="text-[11px] text-emerald-600 font-bold text-right">{formatDateThai(formData.purchase_date)}</p>
                </div>
                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ระยะเวลาประกัน</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.warranty_months} onChange={e => handleDateCalculation('warranty_months', e.target.value)}><option value="3">3 เดือน</option><option value="6">6 เดือน</option><option value="12">1 ปี (12 เดือน)</option><option value="24">2 ปี (24 เดือน)</option></select></div>
@@ -170,7 +223,7 @@ export default function AddOrder() {
             </div>
           </div>
 
-          {/* Customer Info */}
+          {/* Card 3: Customer Info */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><User size={18} className="text-orange-500"/> Customer Info</h3>
             <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ชื่อลูกค้า</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold" value={formData.customer_name} onChange={e => setFormData({...formData, customer_name: e.target.value})} /></div>
@@ -183,6 +236,7 @@ export default function AddOrder() {
                       {storeOptions.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     </select>
                     <Store className="absolute left-3 top-3 text-slate-400" size={18}/>
+                    <Link href="/admin/settings" className="absolute right-3 top-3.5 text-[10px] font-bold text-blue-500 hover:underline">+ จัดการ</Link>
                  </div>
                </div>
                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ช่องทางขาย</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold" value={formData.sales_channel} onChange={e => setFormData({...formData, sales_channel: e.target.value})}><option value="">-- เลือก --</option><option value="Shopee">Shopee</option><option value="Lazada">Lazada</option><option value="Line OA">Line OA</option><option value="Facebook">Facebook</option><option value="Website">Website</option><option value="หน้าร้าน">หน้าร้าน</option></select></div>

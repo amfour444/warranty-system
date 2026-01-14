@@ -7,7 +7,7 @@ import {
 import { 
   Package, ShieldCheck, AlertCircle, Search, Printer, Plus, 
   TrendingUp, LogOut, Trash2, Edit, User, Store, Clock, ShoppingBag,
-  ChevronLeft, ChevronRight 
+  ChevronLeft, ChevronRight, Settings
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import Link from 'next/link';
@@ -26,9 +26,9 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // --- ส่วน Pagination (เพิ่มใหม่) ---
+  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10; // จำนวนรายการต่อหน้า (ปรับได้ตามใจชอบ)
+  const itemsPerPage = 10; 
 
   const router = useRouter();
 
@@ -36,7 +36,7 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
-  // Reset หน้าเป็น 1 ทุกครั้งที่พิมพ์ค้นหา
+  // Reset หน้าเป็น 1 เมื่อค้นหา
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
@@ -58,7 +58,7 @@ export default function Dashboard() {
       }).length;
       setStats({ total: warranties.length, active, expiring });
 
-      // Mock Data
+      // Mock Data สำหรับกราฟ (ปรับแต่งได้ตามจริง)
       setChartData([
         { name: 'ต.ค.', sales: 12 }, { name: 'พ.ย.', sales: 19 },
         { name: 'ธ.ค.', sales: 30 }, { name: 'ม.ค.', sales: 45 },
@@ -121,7 +121,7 @@ export default function Dashboard() {
     }
   };
 
-  // 1. กรองข้อมูลก่อน
+  // Logic การค้นหาและแบ่งหน้า
   const filteredData = data.filter(item => 
     item.serial_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.product_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -129,30 +129,39 @@ export default function Dashboard() {
     item.sales_channel?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // 2. คำนวณการแบ่งหน้า
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
 
-  // ฟังก์ชันเปลี่ยนหน้า
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-12">
+      
+      {/* Navbar */}
       <nav className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black">W</div>
           <span className="font-bold text-lg text-slate-800">Warranty Admin</span>
         </div>
-        <button onClick={handleLogout} className="text-slate-500 hover:text-red-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-red-50 px-4 py-2 rounded-xl transition-all">
-           <LogOut size={16} /> Logout
-        </button>
+        
+        <div className="flex items-center gap-2">
+            {/* ปุ่ม Settings */}
+            <Link href="/admin/settings" className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all">
+                <Settings size={18} /> <span className="hidden md:inline">Settings</span>
+            </Link>
+
+            {/* ปุ่ม Logout */}
+            <button onClick={handleLogout} className="text-slate-500 hover:text-red-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-red-50 px-4 py-2 rounded-xl transition-all">
+                <LogOut size={18} /> <span className="hidden md:inline">Logout</span>
+            </button>
+        </div>
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-8">
         
-        {/* Header */}
+        {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">Dashboard Overview</h1>
@@ -163,14 +172,14 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Stats */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <StatCard title="Total Orders" value={stats.total} icon={<Package size={20} />} color="bg-blue-500" />
           <StatCard title="Active" value={stats.active} icon={<ShieldCheck size={20} />} color="bg-emerald-500" />
           <StatCard title="Expiring (30 Days)" value={stats.expiring} icon={<AlertCircle size={20} />} color="bg-orange-500" />
         </div>
 
-        {/* Graph */}
+        {/* Chart */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hidden md:block">
           <h3 className="font-bold text-slate-800 mb-6 flex gap-2"><TrendingUp size={20} className="text-blue-500"/> Growth Stats</h3>
           <div className="h-[200px] w-full">
@@ -194,7 +203,7 @@ export default function Dashboard() {
         {/* Table Section */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
           
-          {/* Table Header */}
+          {/* Table Header & Search */}
           <div className="p-5 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2"><Clock size={18} className="text-slate-400"/> Recent Orders</h3>
             <div className="relative w-full md:w-72">
@@ -282,7 +291,7 @@ export default function Dashboard() {
             {filteredData.length === 0 && <div className="p-10 text-center text-slate-400"><Package size={48} className="mx-auto mb-3 opacity-20"/><p>ไม่พบข้อมูลที่ค้นหา</p></div>}
           </div>
 
-          {/* Pagination Controls (ส่วนแบ่งหน้าด้านล่างสุด) */}
+          {/* Pagination Controls */}
           {filteredData.length > 0 && (
             <div className="p-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/30">
               <p className="text-xs text-slate-500 font-bold">
@@ -297,7 +306,6 @@ export default function Dashboard() {
                   <ChevronLeft size={16} />
                 </button>
                 
-                {/* แสดงเลขหน้าแบบย่อ */}
                 <div className="flex items-center gap-1 px-2">
                   <span className="text-sm font-bold text-slate-700">{currentPage}</span>
                   <span className="text-xs text-slate-400">/</span>
@@ -321,6 +329,7 @@ export default function Dashboard() {
   );
 }
 
+// Sub Component: Card
 function StatCard({ title, value, icon, color }: any) {
   return (
     <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex justify-between items-start">
