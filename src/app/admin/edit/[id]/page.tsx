@@ -10,9 +10,20 @@ import {
 import Link from 'next/link';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
+// ฟังก์ชันแสดงวันที่ไทย
+const formatDateThai = (dateString: string) => {
+  if (!dateString) return '-';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
 export default function EditOrder() {
   const router = useRouter();
-  const params = useParams();
+  const params = useParams(); // รับ ID จาก URL
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -32,12 +43,14 @@ export default function EditOrder() {
   });
 
   useEffect(() => {
+    // 1. โหลดร้านค้า
     const fetchStores = async () => {
       const { data } = await supabase.from('stores').select('*').order('name');
       if (data) setStoreOptions(data);
     };
     fetchStores();
 
+    // 2. โหลดข้อมูลสินค้าที่จะแก้
     const fetchData = async () => {
       if (params?.id) {
         const { data } = await supabase.from('warranties').select('*').eq('id', params.id).single();
@@ -75,17 +88,55 @@ export default function EditOrder() {
     }, 300);
   };
 
+  // --- ส่วนบันทึกข้อมูล (เช็คซ้ำแบบ Advance) ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const { error } = await supabase.from('warranties').update({...formData, warranty_months: parseInt(formData.warranty_months)}).eq('id', params?.id);
-    if (error) alert('Error: ' + error.message);
-    else {
-      alert('บันทึกเรียบร้อย!');
-      router.push('/admin/dashboard');
-      router.refresh();
+
+    const cleanSN = formData.serial_number.trim();
+
+    if (!cleanSN) {
+        alert('กรุณากรอก Serial Number');
+        setSaving(false);
+        return;
     }
-    setSaving(false);
+
+    try {
+        // 1. เช็คว่ามีเลขนี้ในระบบไหม? 
+        // **สำคัญ:** ต้องเช็คด้วยว่า id ต้องไม่ใช่ตัวปัจจุบัน (.neq)
+        const { data: duplicateCheck, error: checkError } = await supabase
+            .from('warranties')
+            .select('id')
+            .eq('serial_number', cleanSN)
+            .neq('id', params?.id); // ห้ามซ้ำกับคนอื่น (แต่ซ้ำกับตัวเองได้)
+
+        if (checkError) throw checkError;
+
+        // 2. ถ้าเจอข้อมูล แปลว่าเลขนี้มีคนอื่นใช้อยู่แล้ว
+        if (duplicateCheck && duplicateCheck.length > 0) {
+            alert(`❌ ไม่สามารถบันทึกได้\n\nSerial Number: ${cleanSN}\nมีอยู่ในระบบแล้ว (เป็นของรายการอื่น)`);
+            setSaving(false);
+            return; 
+        }
+
+        // 3. ถ้าผ่าน ก็อัปเดตข้อมูล
+        const { error: updateError } = await supabase.from('warranties').update({
+            ...formData,
+            serial_number: cleanSN,
+            warranty_months: parseInt(formData.warranty_months)
+        }).eq('id', params?.id);
+
+        if (updateError) throw updateError;
+
+        alert('แก้ไขข้อมูลเรียบร้อย ✅');
+        router.push('/admin/dashboard');
+        router.refresh();
+
+    } catch (error: any) {
+        alert('Error: ' + error.message);
+    } finally {
+        setSaving(false);
+    }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-blue-600"/></div>;
@@ -108,17 +159,29 @@ export default function EditOrder() {
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><ShieldCheck size={18} className="text-emerald-500"/> Warranty Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">วันที่ซื้อ</label><div className="relative"><input required type="date" className="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.purchase_date} onChange={e => handleDateCalculation('purchase_date', e.target.value)} /><Calendar className="absolute left-3 top-3 text-slate-400" size={18}/></div></div>
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-500 uppercase">วันที่ซื้อ</label>
+                 <div className="relative">
+                   <input required type="date" className="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.purchase_date} onChange={e => handleDateCalculation('purchase_date', e.target.value)} />
+                   <Calendar className="absolute left-3 top-3 text-slate-400" size={18}/>
+                 </div>
+                 <p className="text-[11px] text-emerald-600 font-bold text-right">{formatDateThai(formData.purchase_date)}</p>
+               </div>
                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ระยะเวลาประกัน</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.warranty_months} onChange={e => handleDateCalculation('warranty_months', e.target.value)}><option value="3">3 เดือน</option><option value="6">6 เดือน</option><option value="12">1 ปี (12 เดือน)</option><option value="24">2 ปี (24 เดือน)</option></select></div>
             </div>
-            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex justify-between items-center"><span className="text-sm font-bold text-emerald-700">วันหมดอายุใหม่:</span><span className="text-lg font-black text-emerald-600">{format(parseISO(formData.expiry_date || new Date().toISOString()), 'dd/MM/yyyy')}</span></div>
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex justify-between items-center">
+                <span className="text-sm font-bold text-emerald-700">วันหมดอายุใหม่:</span>
+                <div className="text-right">
+                    <div className="text-xs font-bold text-emerald-500 opacity-60">{format(parseISO(formData.expiry_date || new Date().toISOString()), 'dd/MM/yyyy')}</div>
+                    <div className="text-lg font-black text-emerald-600">{formatDateThai(formData.expiry_date || new Date().toISOString())}</div>
+                </div>
+            </div>
           </div>
 
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><User size={18} className="text-orange-500"/> Customer Info</h3>
             <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ชื่อลูกค้า</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold" value={formData.customer_name} onChange={e => setFormData({...formData, customer_name: e.target.value})} /></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               {/* Dropdown ร้านค้า */}
                <div className="space-y-1">
                  <label className="text-xs font-bold text-slate-500 uppercase">ร้านค้า</label>
                  <div className="relative">
