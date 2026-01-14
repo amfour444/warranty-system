@@ -1,26 +1,44 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* โค้ด CSS อื่นๆ ต่อท้ายจากตรงนี้... */
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #f8fafc;
+}
+
+/* --- ตั้งค่าเครื่องพิมพ์ Niimbot B1 (40x20mm) --- */
+@media print {
+  @page {
+    size: 40mm 20mm; /* บังคับขนาดกระดาษ */
+    margin: 0;       /* ลบขอบขาว */
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    width: 40mm;
+    height: 20mm;
+  }
+  /* ซ่อน UI เว็บทั้งหมด */
+  body * {
+    visibility: hidden;
+  }
+  /* แสดงเฉพาะพื้นที่พิมพ์ */
+  #print-area, #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 40mm;
+    height: 20mm;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: white;
+    z-index: 9999;
+  }
 }
