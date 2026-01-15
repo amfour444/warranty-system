@@ -4,19 +4,17 @@ import { supabase } from '@/lib/supabase';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { 
   Search, QrCode, ShieldCheck, Package, PhoneCall, ExternalLink, X, 
-  User, Store, ShoppingBag, ShieldAlert 
+  User, Store, ShoppingBag, ShieldAlert, Info 
 } from 'lucide-react';
 import { format, parseISO, isAfter, differenceInDays } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
 
-// ฟังก์ชันดึงค่าจาก URL (?sn=...)
 function SearchHandler({ onSearch }: { onSearch: (sn: string) => void }) {
   const s = useSearchParams();
   useEffect(() => { if(s.get('sn')) onSearch(s.get('sn')!) }, [s]);
   return null;
 }
 
-// ฟังก์ชันแปลงวันที่ไทย (เพื่อให้ลูกค้าดูง่าย)
 const formatDateThai = (dateString: string) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
@@ -36,7 +34,7 @@ export default function Check() {
     
     const { data: res, error: err } = await supabase
       .from('warranties')
-      .select('*') // ดึงทุกคอลัมน์รวมถึง store_name, sales_channel, customer_name
+      .select('*') 
       .eq('serial_number', val.trim())
       .single();
 
@@ -48,7 +46,7 @@ export default function Check() {
   const startScan = () => {
     setScan(true);
     setTimeout(() => {
-      const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width:200, height:200}, videoConstraints: { facingMode: "environment" } }, false);
+      const scanner = new Html5QrcodeScanner("reader", { fps: 15, qrbox: {width:250, height:250}, videoConstraints: { facingMode: "environment" } }, false);
       scanner.render((txt) => { handleSearch(txt); setScan(false); scanner.clear(); }, ()=>{});
     }, 300);
   };
@@ -57,7 +55,7 @@ export default function Check() {
   const daysLeft = data ? differenceInDays(parseISO(data.expiry_date), new Date()) : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 font-sans text-slate-900 pb-12">
       <Suspense><SearchHandler onSearch={handleSearch}/></Suspense>
       
       <div className="max-w-sm w-full space-y-5 py-6">
@@ -75,24 +73,24 @@ export default function Check() {
         <div className="relative">
           <input 
             type="text" 
-            placeholder="Serial Number..." 
+            placeholder="กรอก Serial Number..." 
             className="w-full p-4 pl-11 bg-white rounded-xl shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" 
             value={sn} 
             onChange={e=>setSn(e.target.value)} 
+            onKeyDown={e => e.key === 'Enter' && handleSearch(sn)}
           />
           <Search className="absolute left-3.5 top-4 text-slate-300" size={20}/>
-          <button onClick={startScan} className="absolute right-2 top-2 p-2 bg-slate-50 text-slate-500 rounded-lg"><QrCode size={20}/></button>
+          <button onClick={startScan} className="absolute right-2 top-2 p-2 bg-slate-50 text-slate-500 rounded-lg active:scale-90 transition-transform"><QrCode size={20}/></button>
         </div>
         
         <button 
           onClick={()=>handleSearch(sn)} 
           disabled={loading} 
-          className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-md hover:bg-slate-800 transition-all disabled:bg-slate-300"
+          className="w-full bg-slate-900 text-white p-4 rounded-xl font-bold shadow-md hover:bg-slate-800 transition-all active:scale-[0.98] disabled:bg-slate-300"
         >
           {loading ? 'กำลังตรวจสอบ...' : 'ตรวจสอบสถานะ'}
         </button>
 
-        {/* Error Message */}
         {error && (
           <div className="bg-rose-50 text-rose-600 p-4 rounded-xl border border-rose-100 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
             <ShieldAlert size={20}/>
@@ -102,9 +100,8 @@ export default function Check() {
 
         {/* Result Card */}
         {data && (
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-300">
+          <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-300">
             
-            {/* Status Banner */}
             <div className={`py-3 px-5 flex justify-between items-center ${active?'bg-emerald-500':'bg-rose-500'}`}>
                <span className="text-white text-[10px] font-black uppercase tracking-wider">Status</span>
                <div className="flex items-center gap-2">
@@ -113,36 +110,58 @@ export default function Check() {
                </div>
             </div>
 
-            <div className="p-5 space-y-5">
+            <div className="p-6 space-y-6">
               
               {/* Product Info */}
-              <div className="flex gap-3 items-start">
-                <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100">
-                  <Package size={24}/>
+              <div className="flex gap-4 items-start border-b border-slate-50 pb-4">
+                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 shrink-0 border border-slate-100">
+                  <Package size={28}/>
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Product</p>
-                  <h3 className="font-bold text-slate-800 text-sm leading-tight">{data.product_name}</h3>
-                  <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-1 inline-block">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5 tracking-wider">Product Info</p>
+                  <h3 className="font-black text-slate-800 text-base leading-tight">{data.product_name}</h3>
+                  <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-1 inline-block uppercase italic">
                     {data.model || '-'}
                   </span>
                 </div>
               </div>
 
-              {/* Serial Number Box */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Serial Number</p>
-                <p className="font-mono font-black text-slate-700 text-lg tracking-tight">{data.serial_number}</p>
+              {/* --- โซน Serial Number และเงื่อนไข (ตามสั่ง) --- */}
+              <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-100 text-center space-y-4 shadow-inner">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Serial Number</p>
+                  <p className="font-mono font-black text-slate-700 text-2xl tracking-tight">{data.serial_number}</p>
+                </div>
+
+                <div className="h-px bg-slate-200 w-full mx-auto"></div>
+
+                {/* เงื่อนไขการรับประกัน */}
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center justify-center gap-1">
+                    <Info size={12} className="text-blue-500"/> เงื่อนไขการรับประกัน
+                  </p>
+                  <p className="text-sm font-bold text-slate-700 leading-snug px-2">
+                    {data.warranty_condition || 'การรับประกันครอบคลุมเฉพาะตัวเครื่อง ไม่รวมอุปกรณ์เสริม'}
+                  </p>
+                </div>
+
+                {/* ข้อความสีแดง ตัวใหญ่ อ่านชัดเจน */}
+                <div className="bg-white border-2 border-rose-100 p-3 rounded-xl shadow-sm">
+                   <p className="text-sm md:text-base font-black text-rose-600 leading-tight">
+                     *** เงื่อนไขการรับประกันเป็นไปตามพิจารณาของทางร้าน ***
+                   </p>
+                </div>
               </div>
+              {/* -------------------------------------- */}
 
               {/* Dates */}
               <div className="grid grid-cols-2 gap-4 border-t border-slate-50 pt-4">
                 <div>
-                  <p className="text-[9px] font-bold text-slate-300 uppercase">วันที่ซื้อ</p>
-                  <p className="font-bold text-slate-600 text-xs">{formatDateThai(data.purchase_date)}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">วันที่ซื้อ</p>
+                  <p className="font-bold text-slate-700 text-xs">{formatDateThai(data.purchase_date)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[9px] font-bold text-slate-300 uppercase">วันหมดอายุ</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">วันหมดอายุ</p>
                   <p className={`font-black text-xs ${active?'text-emerald-600':'text-rose-500'}`}>
                     {formatDateThai(data.expiry_date)}
                   </p>
@@ -150,62 +169,54 @@ export default function Check() {
               </div>
 
               {active && (
-                <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl text-center text-[11px] font-bold border border-emerald-100">
+                <div className="bg-emerald-50 text-emerald-600 p-3 rounded-xl text-center text-[11px] font-bold border border-emerald-100">
                   ยินดีด้วย! ประกันเหลืออีก {daysLeft} วัน
                 </div>
               )}
 
-              {/* --- ส่วนที่เพิ่มใหม่: ข้อมูลลูกค้า & ร้านค้า --- */}
-              <div className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-100">
-                
-                {/* ลูกค้า */}
+              {/* ข้อมูลลูกค้า & ร้านค้า */}
+              <div className="bg-slate-50 rounded-2xl p-4 space-y-3 border border-slate-100">
                 <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm border border-slate-100">
-                     <User size={14} />
+                   <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-400 shadow-sm">
+                     <User size={16} />
                    </div>
-                   <div className="overflow-hidden">
+                   <div>
                      <p className="text-[9px] font-bold text-slate-400 uppercase">ลูกค้า (Customer)</p>
-                     <p className="text-xs font-bold text-slate-700 truncate">{data.customer_name || '-'}</p>
+                     <p className="text-xs font-bold text-slate-700">{data.customer_name || '-'}</p>
                    </div>
                 </div>
 
-                <div className="h-px bg-slate-200 w-full"></div>
-
-                {/* ร้านค้า + ช่องทาง */}
                 <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 shadow-sm border border-slate-100">
-                     <Store size={14} />
+                   <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-400 shadow-sm">
+                     <Store size={16} />
                    </div>
-                   <div>
+                   <div className="flex-1">
                      <p className="text-[9px] font-bold text-slate-400 uppercase">ซื้อจาก (Store)</p>
                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-700">{data.store_name || '-'}</span>
                         {data.sales_channel && (
-                          <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[9px] font-bold">
-                            <ShoppingBag size={8} /> {data.sales_channel}
+                          <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-600 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase">
+                            <ShoppingBag size={10} /> {data.sales_channel}
                           </span>
                         )}
                      </div>
                    </div>
                 </div>
-
               </div>
-              {/* --- จบส่วนที่เพิ่มใหม่ --- */}
 
             </div>
           </div>
         )}
 
-        {/* Contact Info */}
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-          <h3 className="text-xs font-black text-slate-800 uppercase flex items-center gap-2">
+          <h3 className="text-[10px] font-black text-slate-800 uppercase flex items-center gap-2 tracking-widest">
             <PhoneCall size={14} className="text-blue-500"/> Contact Support
           </h3>
           <div className="grid grid-cols-2 gap-2">
-             <a href="https://line.me/R/ti/p/@pofpvc" className="flex justify-center items-center gap-2 bg-[#06C755] text-white py-2.5 rounded-xl text-[11px] font-bold hover:bg-[#05b54d] transition-colors">
+             <a href="https://line.me/R/ti/p/@pofpvc" className="flex justify-center items-center gap-2 bg-[#06C755] text-white py-3 rounded-xl text-[11px] font-bold active:scale-95 transition-all">
                <ExternalLink size={14}/> @pofpvc
              </a>
-             <a href="tel:0851622120" className="flex justify-center items-center gap-2 bg-slate-100 text-slate-600 py-2.5 rounded-xl text-[11px] font-bold hover:bg-slate-200 transition-colors">
+             <a href="tel:0851622120" className="flex justify-center items-center gap-2 bg-slate-100 text-slate-600 py-3 rounded-xl text-[11px] font-bold active:scale-95 transition-all">
                <PhoneCall size={14}/> 085-162-2120
              </a>
           </div>
@@ -213,13 +224,12 @@ export default function Check() {
 
       </div>
 
-      {/* Scanner Overlay */}
       {scan && (
-        <div className="fixed inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 backdrop-blur-sm">
           <div className="bg-white p-6 rounded-3xl w-full max-w-xs shadow-2xl">
             <h3 className="font-black text-slate-800 mb-4 text-center">Scan QR Code</h3>
-            <div id="reader" className="rounded-2xl overflow-hidden border-4 border-slate-50 aspect-square shadow-inner"></div>
-            <button onClick={()=>setScan(false)} className="w-full mt-6 p-3 bg-slate-100 text-slate-500 rounded-xl font-bold flex justify-center gap-2 hover:bg-rose-50 hover:text-rose-500 transition-colors">
+            <div id="reader" className="rounded-2xl overflow-hidden border-4 border-slate-100 aspect-square shadow-inner"></div>
+            <button onClick={()=>setScan(false)} className="w-full mt-6 p-4 bg-slate-100 text-slate-500 rounded-xl font-bold flex justify-center gap-2 active:scale-95 transition-all">
               <X size={18}/> Cancel
             </button>
           </div>

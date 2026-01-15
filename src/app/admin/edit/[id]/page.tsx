@@ -5,32 +5,30 @@ import { useRouter, useParams } from 'next/navigation';
 import { addMonths, format, parseISO } from 'date-fns';
 import { 
   Save, ArrowLeft, QrCode, Loader2, Calendar, 
-  Package, User, Store, ShieldCheck, X
+  Package, User, Store, ShieldCheck, X, ChevronDown, Info, ShoppingBag 
 } from 'lucide-react';
 import Link from 'next/link';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
-// ฟังก์ชันแสดงวันที่ไทย
 const formatDateThai = (dateString: string) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
-  return date.toLocaleDateString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 export default function EditOrder() {
   const router = useRouter();
-  const params = useParams(); // รับ ID จาก URL
+  const params = useParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+
+  // Dropdown Options
   const [storeOptions, setStoreOptions] = useState<any[]>([]);
+  const [productPresets, setProductPresets] = useState<any[]>([]);
+  const [conditionOptions, setConditionOptions] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
-    order_number: '',
     product_name: '',
     model: '',
     serial_number: '',
@@ -39,43 +37,52 @@ export default function EditOrder() {
     warranty_months: '12',
     store_name: '',
     sales_channel: '',
+    warranty_condition: '',
     expiry_date: ''
   });
 
   useEffect(() => {
-    // 1. โหลดร้านค้า
-    const fetchStores = async () => {
-      const { data } = await supabase.from('stores').select('*').order('name');
-      if (data) setStoreOptions(data);
-    };
-    fetchStores();
+    const fetchAllData = async () => {
+      // 1. ดึงข้อมูลตัวเลือกทั้งหมด
+      const { data: s } = await supabase.from('stores').select('*').order('name');
+      const { data: p } = await supabase.from('product_presets').select('*').order('name');
+      const { data: c } = await supabase.from('warranty_conditions').select('*').order('title');
+      
+      setStoreOptions(s || []);
+      setProductPresets(p || []);
+      setConditionOptions(c || []);
 
-    // 2. โหลดข้อมูลสินค้าที่จะแก้
-    const fetchData = async () => {
+      // 2. ดึงข้อมูลออเดอร์ที่จะแก้ไข
       if (params?.id) {
-        const { data } = await supabase.from('warranties').select('*').eq('id', params.id).single();
-        if (data) {
+        const { data: res } = await supabase.from('warranties').select('*').eq('id', params.id).single();
+        if (res) {
           setFormData({
-            ...data,
-            warranty_months: data.warranty_months?.toString() || '12',
-            purchase_date: data.purchase_date, 
-            expiry_date: data.expiry_date
+            ...res,
+            warranty_months: res.warranty_months?.toString() || '12'
           });
         }
       }
       setLoading(false);
     };
-    fetchData();
+    fetchAllData();
   }, [params?.id]);
+
+  // ฟังก์ชันเลือกสินค้าจาก Preset
+  const handleSelectPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const item = productPresets.find(p => p.id.toString() === e.target.value);
+    if (item) {
+      setFormData(prev => ({ 
+        ...prev, 
+        product_name: item.name, 
+        model: item.model || '' 
+      }));
+    }
+  };
 
   const handleDateCalculation = (field: string, value: string) => {
     let newData = { ...formData, [field]: value };
     if (newData.purchase_date && newData.warranty_months) {
-      const expiry = format(
-        addMonths(parseISO(newData.purchase_date), parseInt(newData.warranty_months)),
-        'yyyy-MM-dd'
-      );
-      newData.expiry_date = expiry;
+      newData.expiry_date = format(addMonths(parseISO(newData.purchase_date), parseInt(newData.warranty_months)), 'yyyy-MM-dd');
     }
     setFormData(newData);
   };
@@ -83,123 +90,156 @@ export default function EditOrder() {
   const startScanner = () => {
     setIsScanning(true);
     setTimeout(() => {
-      const scanner = new Html5QrcodeScanner("reader-edit", { fps: 10, qrbox: {width:250, height:250}, videoConstraints: { facingMode: "environment" } }, false);
-      scanner.render((txt) => { setFormData(prev => ({ ...prev, serial_number: txt })); setIsScanning(false); scanner.clear(); }, () => {});
-    }, 300);
+      const scanner = new Html5QrcodeScanner("reader-edit", { 
+        fps: 25, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0,
+        videoConstraints: { facingMode: { exact: "environment" } } 
+      }, false);
+      scanner.render((txt) => {
+        setFormData(prev => ({ ...prev, serial_number: txt }));
+        setIsScanning(false);
+        scanner.clear();
+      }, () => {});
+    }, 400);
   };
 
-  // --- ส่วนบันทึกข้อมูล (เช็คซ้ำแบบ Advance) ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-
     const cleanSN = formData.serial_number.trim();
 
-    if (!cleanSN) {
-        alert('กรุณากรอก Serial Number');
-        setSaving(false);
-        return;
+    const { error } = await supabase.from('warranties').update({
+      ...formData,
+      serial_number: cleanSN,
+      warranty_months: parseInt(formData.warranty_months)
+    }).eq('id', params?.id);
+
+    if (!error) {
+      alert('อัปเดตข้อมูลเรียบร้อย ✅');
+      router.push('/admin/dashboard');
+      router.refresh();
+    } else {
+      alert(error.message);
     }
-
-    try {
-        // 1. เช็คว่ามีเลขนี้ในระบบไหม? 
-        // **สำคัญ:** ต้องเช็คด้วยว่า id ต้องไม่ใช่ตัวปัจจุบัน (.neq)
-        const { data: duplicateCheck, error: checkError } = await supabase
-            .from('warranties')
-            .select('id')
-            .eq('serial_number', cleanSN)
-            .neq('id', params?.id); // ห้ามซ้ำกับคนอื่น (แต่ซ้ำกับตัวเองได้)
-
-        if (checkError) throw checkError;
-
-        // 2. ถ้าเจอข้อมูล แปลว่าเลขนี้มีคนอื่นใช้อยู่แล้ว
-        if (duplicateCheck && duplicateCheck.length > 0) {
-            alert(`❌ ไม่สามารถบันทึกได้\n\nSerial Number: ${cleanSN}\nมีอยู่ในระบบแล้ว (เป็นของรายการอื่น)`);
-            setSaving(false);
-            return; 
-        }
-
-        // 3. ถ้าผ่าน ก็อัปเดตข้อมูล
-        const { error: updateError } = await supabase.from('warranties').update({
-            ...formData,
-            serial_number: cleanSN,
-            warranty_months: parseInt(formData.warranty_months)
-        }).eq('id', params?.id);
-
-        if (updateError) throw updateError;
-
-        alert('แก้ไขข้อมูลเรียบร้อย ✅');
-        router.push('/admin/dashboard');
-        router.refresh();
-
-    } catch (error: any) {
-        alert('Error: ' + error.message);
-    } finally {
-        setSaving(false);
-    }
+    setSaving(false);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-blue-600"/></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-blue-600" /></div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 pb-12">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans pb-12">
       <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center gap-4"><Link href="/admin/dashboard" className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 transition-all shadow-sm"><ArrowLeft size={20} /></Link><div><h1 className="text-2xl font-black text-slate-800">Edit Order</h1><p className="text-slate-400 text-sm">แก้ไขข้อมูล: {formData.product_name}</p></div></div>
+        <div className="flex items-center gap-4">
+          <Link href="/admin/dashboard" className="w-10 h-10 bg-white border rounded-xl flex items-center justify-center shadow-sm hover:bg-slate-50 transition-all"><ArrowLeft size={20} /></Link>
+          <h1 className="text-2xl font-black text-slate-800">Edit Order</h1>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><Package size={18} className="text-blue-500"/> Product Info</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ชื่อสินค้า</label><input required type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} /></div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">รุ่น (Model)</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-bold" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} /></div>
+          {/* 1. Product Info Card */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+               <h3 className="font-bold flex items-center gap-2 text-slate-800"><Package size={18} className="text-blue-500"/> ข้อมูลสินค้า</h3>
+               <select onChange={handleSelectPreset} className="text-[10px] bg-blue-50 text-blue-600 font-bold p-2 px-3 rounded-lg outline-none cursor-pointer">
+                 <option value="">-- เปลี่ยนเป็นสินค้ามาตรฐาน --</option>
+                 {productPresets.map(p => <option key={p.id} value={p.id}>{p.name} ({p.model})</option>)}
+               </select>
             </div>
-            <div className="space-y-1 relative"><label className="text-xs font-bold text-slate-500 uppercase">Serial Number</label><div className="flex gap-2"><input required type="text" className="w-full p-3 pl-4 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-blue-100 font-mono font-bold" value={formData.serial_number} onChange={e => setFormData({...formData, serial_number: e.target.value})} /><button type="button" onClick={startScanner} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white"><QrCode size={20} /></button></div></div>
-          </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><ShieldCheck size={18} className="text-emerald-500"/> Warranty Details</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-               <div className="space-y-1">
-                 <label className="text-xs font-bold text-slate-500 uppercase">วันที่ซื้อ</label>
-                 <div className="relative">
-                   <input required type="date" className="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.purchase_date} onChange={e => handleDateCalculation('purchase_date', e.target.value)} />
-                   <Calendar className="absolute left-3 top-3 text-slate-400" size={18}/>
-                 </div>
-                 <p className="text-[11px] text-emerald-600 font-bold text-right">{formatDateThai(formData.purchase_date)}</p>
-               </div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ระยะเวลาประกัน</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-emerald-100 font-bold" value={formData.warranty_months} onChange={e => handleDateCalculation('warranty_months', e.target.value)}><option value="3">3 เดือน</option><option value="6">6 เดือน</option><option value="12">1 ปี (12 เดือน)</option><option value="24">2 ปี (24 เดือน)</option></select></div>
-            </div>
-            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex justify-between items-center">
-                <span className="text-sm font-bold text-emerald-700">วันหมดอายุใหม่:</span>
-                <div className="text-right">
-                    <div className="text-xs font-bold text-emerald-500 opacity-60">{format(parseISO(formData.expiry_date || new Date().toISOString()), 'dd/MM/yyyy')}</div>
-                    <div className="text-lg font-black text-emerald-600">{formatDateThai(formData.expiry_date || new Date().toISOString())}</div>
-                </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b border-slate-50 pb-3"><User size={18} className="text-orange-500"/> Customer Info</h3>
-            <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ชื่อลูกค้า</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold" value={formData.customer_name} onChange={e => setFormData({...formData, customer_name: e.target.value})} /></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div className="space-y-1">
-                 <label className="text-xs font-bold text-slate-500 uppercase">ร้านค้า</label>
-                 <div className="relative">
-                    <select className="w-full p-3 pl-10 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold appearance-none" value={formData.store_name} onChange={e => setFormData({...formData, store_name: e.target.value})}>
-                      <option value="">-- เลือกร้านค้า --</option>
-                      {storeOptions.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <Store className="absolute left-3 top-3 text-slate-400" size={18}/>
-                 </div>
+                 <label className="text-xs font-bold text-slate-400">ชื่อสินค้า</label>
+                 <input required type="text" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 focus:ring-blue-100" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} />
                </div>
-               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">ช่องทางขาย</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none focus:ring-2 focus:ring-orange-100 font-bold" value={formData.sales_channel} onChange={e => setFormData({...formData, sales_channel: e.target.value})}><option value="Shopee">Shopee</option><option value="Lazada">Lazada</option><option value="Line OA">Line OA</option><option value="Facebook">Facebook</option><option value="Website">Website</option><option value="หน้าร้าน">หน้าร้าน</option></select></div>
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-400">รุ่น (Model)</label>
+                 <input type="text" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 focus:ring-blue-100" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400">Serial Number (S/N)</label>
+              <div className="flex gap-2">
+                <input required type="text" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-mono font-bold text-blue-600 focus:ring-2 focus:ring-blue-100" value={formData.serial_number} onChange={e => setFormData({...formData, serial_number: e.target.value})} />
+                <button type="button" onClick={startScanner} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"><QrCode size={20} /></button>
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400 uppercase">เงื่อนไขการรับประกัน</label>
+              <select required className="w-full p-3 bg-blue-50/50 border-2 border-blue-50 rounded-xl outline-none font-bold text-blue-800" value={formData.warranty_condition} onChange={e => setFormData({...formData, warranty_condition: e.target.value})}>
+                <option value="">-- เลือกเงื่อนไขการรับประกัน --</option>
+                {conditionOptions.map(c => <option key={c.id} value={c.title}>{c.title}</option>)}
+              </select>
             </div>
           </div>
 
-          <button type="submit" disabled={saving} className="w-full bg-blue-600 text-white p-4 rounded-2xl font-black text-lg shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-[0.98] flex items-center justify-center gap-2">{saving ? <Loader2 className="animate-spin"/> : <Save size={20}/>} {saving ? 'Updating...' : 'Update Order'}</button>
+          {/* 2. Warranty Info Card */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+            <h3 className="font-bold border-b border-slate-50 pb-3 flex items-center gap-2 text-slate-800"><ShieldCheck size={18} className="text-emerald-500"/> ข้อมูลการรับประกัน</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-400">วันที่ซื้อ</label>
+                 <input required type="date" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 focus:ring-blue-100" value={formData.purchase_date} onChange={e => handleDateCalculation('purchase_date', e.target.value)} />
+               </div>
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-400">ระยะเวลาประกัน</label>
+                 <select className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold cursor-pointer" value={formData.warranty_months} onChange={e => handleDateCalculation('warranty_months', e.target.value)}>
+                   <option value="3">3 เดือน</option>
+                   <option value="6">6 เดือน</option>
+                   <option value="12">1 ปี (12 เดือน)</option>
+                   <option value="24">2 ปี (24 เดือน)</option>
+                 </select>
+               </div>
+            </div>
+            <div className="bg-emerald-50 p-4 rounded-2xl flex justify-between items-center border border-emerald-100 shadow-inner">
+               <span className="text-sm font-bold text-emerald-700">หมดอายุใหม่: {formatDateThai(formData.expiry_date)}</span>
+            </div>
+          </div>
+
+          {/* 3. Customer Info Card (เพิ่มกลับมาให้แล้ว) */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
+            <h3 className="font-bold border-b border-slate-50 pb-3 flex items-center gap-2 text-slate-800"><User size={18} className="text-orange-500"/> ข้อมูลลูกค้าและการจัดส่ง</h3>
+            
+            <div className="space-y-1">
+               <label className="text-xs font-bold text-slate-400">ชื่อลูกค้า / ชื่อบริษัท</label>
+               <input type="text" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold focus:ring-2 focus:ring-blue-100" value={formData.customer_name || ''} onChange={e => setFormData({...formData, customer_name: e.target.value})} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-400 flex items-center gap-1"><Store size={12}/> ร้านค้า</label>
+                 <select className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold cursor-pointer" value={formData.store_name || ''} onChange={e => setFormData({...formData, store_name: e.target.value})}>
+                   <option value="">-- เลือกร้านค้า --</option>
+                   {storeOptions.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                 </select>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-xs font-bold text-slate-400 flex items-center gap-1"><ShoppingBag size={12}/> ช่องทางขาย</label>
+                 <select className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold cursor-pointer" value={formData.sales_channel || ''} onChange={e => setFormData({...formData, sales_channel: e.target.value})}>
+                   <option value="">-- เลือกช่องทาง --</option>
+                   <option value="Shopee">Shopee</option>
+                   <option value="Lazada">Lazada</option>
+                   <option value="หน้าร้าน">หน้าร้าน</option>
+                   <option value="อื่นๆ">อื่นๆ</option>
+                 </select>
+               </div>
+            </div>
+          </div>
+
+          <button type="submit" disabled={saving} className="w-full bg-blue-600 text-white p-5 rounded-[2rem] font-black text-lg shadow-xl shadow-blue-100 active:scale-95 transition-all flex justify-center items-center gap-2">
+            {saving ? <Loader2 className="animate-spin" /> : <Save size={20} />} {saving ? 'Saving...' : 'Update Warranty'}
+          </button>
         </form>
 
-        {isScanning && <div className="fixed inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 backdrop-blur-sm"><div className="bg-white p-6 rounded-3xl w-full max-w-xs shadow-2xl"><h3 className="font-black text-slate-800 mb-4 text-center">Scan QR</h3><div id="reader-edit" className="rounded-2xl overflow-hidden border-4 border-slate-50 aspect-square"></div><button onClick={()=>setIsScanning(false)} className="w-full mt-6 p-3 bg-slate-100 text-slate-500 rounded-xl font-bold flex justify-center gap-2 items-center"><X size={18}/> Close</button></div></div>}
+        {/* Scanner Overlay */}
+        {isScanning && (
+          <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
+            <div className="bg-white p-6 rounded-[2.5rem] w-full max-w-xs shadow-2xl animate-in zoom-in-95">
+              <h3 className="font-black text-center mb-4 flex items-center justify-center gap-2 text-slate-800"><QrCode size={20}/> Scan S/N</h3>
+              <div id="reader-edit" className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"></div>
+              <button onClick={()=>setIsScanning(false)} className="w-full mt-6 p-4 bg-slate-100 text-slate-600 rounded-2xl font-bold flex justify-center gap-2 hover:bg-slate-200 active:scale-95 transition-all"><X size={18}/> Close</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
