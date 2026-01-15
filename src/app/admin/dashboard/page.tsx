@@ -2,12 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
 import { 
   Package, ShieldCheck, AlertCircle, Search, Printer, Plus, 
   TrendingUp, LogOut, Trash2, Edit, User, Store, Clock, ShoppingBag,
-  ChevronLeft, ChevronRight, Settings
+  ChevronLeft, ChevronRight, Settings, Calendar
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import Link from 'next/link';
@@ -18,6 +18,26 @@ const formatDateThai = (dateString: string) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
   return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+};
+
+// --- ฟังก์ชันใหม่: จัดกลุ่มข้อมูลตามเดือน (ของปีปัจจุบัน) ---
+const processChartData = (items: any[]) => {
+  const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  const currentYear = new Date().getFullYear();
+  
+  // สร้าง Array รอไว้ 12 เดือน (ยอดเริ่มต้น 0)
+  const data = months.map(m => ({ name: m, total: 0 }));
+
+  items.forEach(item => {
+    const d = new Date(item.created_at);
+    // เช็คว่าเป็นของปีนี้หรือไม่
+    if (d.getFullYear() === currentYear) {
+      const monthIndex = d.getMonth(); // 0 = ม.ค., 1 = ก.พ.
+      data[monthIndex].total += 1;
+    }
+  });
+
+  return data;
 };
 
 export default function Dashboard() {
@@ -36,7 +56,6 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
-  // Reset หน้าเป็น 1 เมื่อค้นหา
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
@@ -58,12 +77,9 @@ export default function Dashboard() {
       }).length;
       setStats({ total: warranties.length, active, expiring });
 
-      // Mock Data สำหรับกราฟ (ปรับแต่งได้ตามจริง)
-      setChartData([
-        { name: 'ต.ค.', sales: 12 }, { name: 'พ.ย.', sales: 19 },
-        { name: 'ธ.ค.', sales: 30 }, { name: 'ม.ค.', sales: 45 },
-        { name: 'ก.พ.', sales: 28 }, { name: 'มี.ค.', sales: warranties.length }
-      ]);
+      // --- ใช้ฟังก์ชันคำนวณกราฟจากข้อมูลจริง ---
+      const realChartData = processChartData(warranties);
+      setChartData(realChartData);
     }
   };
 
@@ -79,40 +95,123 @@ export default function Dashboard() {
     }
   };
 
+  // ฟังก์ชันพิมพ์สติกเกอร์ (ปรับปรุงสำหรับ 40x20mm - ชื่อสินค้าเล็กลง)
   const handlePrint = (item: any) => {
+    // สร้างลิงก์สำหรับสแกน (เปลี่ยน domain เป็นของจริงตอนขึ้น Server)
     const checkUrl = `${window.location.origin}/check?sn=${item.serial_number}`;
+    
     const printWindow = window.open('', '_blank', 'width=400,height=300');
     if (printWindow) {
       printWindow.document.write(`
         <html>
         <head>
+          <title>Print Label</title>
           <style>
-            @page { size: 40mm 20mm; margin: 0; }
-            body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }
-            .label { width: 40mm; height: 20mm; display: flex; align-items: center; padding: 1mm; box-sizing: border-box; }
-            .qr { width: 13mm; display: flex; justify-content: center; }
-            .info { flex: 1; padding-left: 1mm; line-height: 1; overflow: hidden; }
-            .title { font-size: 7px; font-weight: bold; white-space: nowrap; }
-            .model { font-size: 6px; font-weight: bold; color: #000; margin-top: 1px; }
-            .sn { font-size: 6px; font-family: monospace; margin-top: 1px; }
-            .date { font-size: 5px; font-weight: bold; margin-top: 1px; color: #333; }
+            /* ตั้งค่าขนาดกระดาษ 40mm x 20mm */
+            @page { 
+              size: 40mm 20mm; 
+              margin: 0; 
+            }
+            body { 
+              margin: 0; 
+              padding: 0; 
+              font-family: 'Arial', sans-serif; 
+              background: white;
+            }
+            
+            /* กล่องหลัก */
+            .label { 
+              width: 40mm; 
+              height: 20mm; 
+              display: flex; 
+              align-items: center; 
+              padding: 0.5mm; /* ลด padding ลงนิดหน่อยเพื่อเพิ่มพื้นที่ */
+              box-sizing: border-box; 
+              overflow: hidden;
+            }
+
+            /* ส่วน QR Code (ซ้าย) */
+            .qr-section {
+              width: 14mm;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              padding-right: 1mm;
+            }
+            canvas {
+              width: 13mm !important;
+              height: 13mm !important;
+            }
+
+            /* ส่วนข้อความ (ขวา) */
+            .info-section {
+              flex: 1;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              line-height: 1.1;
+              overflow: hidden; /* ซ่อนส่วนที่เกิน */
+            }
+
+            /* จัดขนาดตัวหนังสือให้พอดี */
+            .product-name {
+              font-size: 7px; /* --- ลดขนาดลงเหลือ 7px --- */
+              font-weight: bold;
+              white-space: nowrap;     /* บังคับบรรทัดเดียว */
+              overflow: hidden;        /* ซ่อนที่เกิน */
+              text-overflow: ellipsis; /* แสดง ... ถ้าเกิน */
+              max-width: 24mm;         /* พื้นที่ความกว้างสูงสุดของข้อความ */
+              margin-bottom: 1px;
+            }
+            .model {
+              font-size: 6px;
+              font-weight: bold;
+              color: #333;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              max-width: 24mm;
+            }
+            .sn {
+              font-size: 6px;
+              font-family: monospace;
+              margin-top: 1px;
+              letter-spacing: -0.3px; /* บีบตัวอักษร S/N นิดหน่อย */
+              font-weight: bold;
+            }
+            .date {
+              font-size: 5px;
+              font-weight: bold;
+              margin-top: 1px;
+              color: #555;
+            }
           </style>
         </head>
         <body>
           <div class="label">
-            <div class="qr" id="qrcode"></div>
-            <div class="info">
-              <div class="title">${item.product_name}</div>
-              <div class="model">${item.model || '-'}</div>
-              <div class="sn">SN:${item.serial_number}</div>
-              <div class="date">EXP:${format(parseISO(item.expiry_date), 'dd/MM/yy')}</div>
+            <div class="qr-section" id="qrcode"></div>
+            <div class="info-section">
+              <div class="product-name">${item.product_name}</div>
+              <div class="model">รุ่น: ${item.model || '-'}</div>
+              <div class="sn">SN: ${item.serial_number}</div>
+              <div class="date">EXP: ${new Date(item.expiry_date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' })}</div>
             </div>
           </div>
+
           <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
           <script>
-            QRCode.toCanvas(document.createElement('canvas'), '${checkUrl}', { width: 50, margin: 0 }, function (error, canvas) {
+            QRCode.toCanvas(document.createElement('canvas'), '${checkUrl}', { 
+              width: 50, 
+              margin: 0,
+              errorCorrectionLevel: 'L'
+            }, function (error, canvas) {
+              if (error) console.error(error);
               document.getElementById('qrcode').appendChild(canvas);
-              setTimeout(() => { window.print(); window.close(); }, 500);
+              
+              setTimeout(() => { 
+                window.print(); 
+                window.close(); 
+              }, 500);
             })
           </script>
         </body>
@@ -147,15 +246,13 @@ export default function Dashboard() {
         </div>
         
         <div className="flex items-center gap-2">
-            {/* ปุ่ม Settings */}
-            <Link href="/admin/settings" className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all">
-                <Settings size={18} /> <span className="hidden md:inline">Settings</span>
-            </Link>
+           <Link href="/admin/settings" className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all">
+               <Settings size={18} /> <span className="hidden md:inline">Settings</span>
+           </Link>
 
-            {/* ปุ่ม Logout */}
-            <button onClick={handleLogout} className="text-slate-500 hover:text-red-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-red-50 px-4 py-2 rounded-xl transition-all">
-                <LogOut size={18} /> <span className="hidden md:inline">Logout</span>
-            </button>
+           <button onClick={handleLogout} className="text-slate-500 hover:text-red-600 font-bold text-sm flex items-center gap-2 bg-slate-50 hover:bg-red-50 px-4 py-2 rounded-xl transition-all">
+               <LogOut size={18} /> <span className="hidden md:inline">Logout</span>
+           </button>
         </div>
       </nav>
 
@@ -179,23 +276,53 @@ export default function Dashboard() {
           <StatCard title="Expiring (30 Days)" value={stats.expiring} icon={<AlertCircle size={20} />} color="bg-orange-500" />
         </div>
 
-        {/* Chart */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hidden md:block">
-          <h3 className="font-bold text-slate-800 mb-6 flex gap-2"><TrendingUp size={20} className="text-blue-500"/> Growth Stats</h3>
-          <div className="h-[200px] w-full">
+        {/* --- Updated Chart Section (กราฟใหม่ ข้อมูลจริง) --- */}
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hidden md:block">
+          <div className="flex items-center justify-between mb-6 px-2">
+            <div>
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Calendar size={20} className="text-blue-500"/> สถิติการลงทะเบียนรายเดือน
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 font-bold ml-7">ข้อมูลประจำปี {new Date().getFullYear()}</p>
+            </div>
+            <div className="text-[10px] font-bold bg-blue-50 text-blue-600 px-3 py-1 rounded-full uppercase tracking-wider">
+              Real-time Data
+            </div>
+          </div>
+          
+          <div className="h-[250px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10}/>
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}}/>
-                <Tooltip contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgb(0 0 0 / 0.1)'}}/>
-                <Area type="monotone" dataKey="sales" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
-              </AreaChart>
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 600}} 
+                  dy={10}
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{fill: '#94a3b8', fontSize: 12}} 
+                  allowDecimals={false} // ไม่แสดงทศนิยม เพราะจำนวนคนเป็นจำนวนเต็ม
+                />
+                <Tooltip 
+                  cursor={{fill: '#f8fafc'}}
+                  contentStyle={{
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                    fontWeight: 'bold',
+                    color: '#1e293b'
+                  }}
+                />
+                <Bar dataKey="total" name="จำนวน (รายการ)" radius={[6, 6, 0, 0]} barSize={40}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill="#3b82f6" />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -261,14 +388,14 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4 align-top">
-                         <div className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${isActive ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'}`}>
-                            {isActive ? 'Active' : 'Expired'}
-                         </div>
-                         {isActive && (
-                           <div className="text-[10px] font-bold text-slate-400 mt-2 pl-1">
-                             เหลืออีก {daysLeft} วัน
-                           </div>
-                         )}
+                          <div className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${isActive ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'}`}>
+                             {isActive ? 'Active' : 'Expired'}
+                          </div>
+                          {isActive && (
+                            <div className="text-[10px] font-bold text-slate-400 mt-2 pl-1">
+                              เหลืออีก {daysLeft} วัน
+                            </div>
+                          )}
                       </td>
                       <td className="px-6 py-4 text-center align-middle">
                         <div className="flex items-center justify-center gap-1">

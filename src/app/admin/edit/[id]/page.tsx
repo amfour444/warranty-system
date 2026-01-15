@@ -5,10 +5,10 @@ import { useRouter, useParams } from 'next/navigation';
 import { addMonths, format, parseISO } from 'date-fns';
 import { 
   Save, ArrowLeft, QrCode, Loader2, Calendar, 
-  Package, User, Store, ShieldCheck, X, ChevronDown, Info, ShoppingBag 
+  Package, User, Store, ShieldCheck, ShoppingBag 
 } from 'lucide-react';
 import Link from 'next/link';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import QRScanner from '@/components/QRScanner'; 
 
 const formatDateThai = (dateString: string) => {
   if (!dateString) return '-';
@@ -27,6 +27,7 @@ export default function EditOrder() {
   const [storeOptions, setStoreOptions] = useState<any[]>([]);
   const [productPresets, setProductPresets] = useState<any[]>([]);
   const [conditionOptions, setConditionOptions] = useState<any[]>([]);
+  const [channelOptions, setChannelOptions] = useState<any[]>([]); // 1. เพิ่ม State
 
   const [formData, setFormData] = useState({
     product_name: '',
@@ -43,16 +44,18 @@ export default function EditOrder() {
 
   useEffect(() => {
     const fetchAllData = async () => {
-      // 1. ดึงข้อมูลตัวเลือกทั้งหมด
+      // 2. ดึงข้อมูลจาก DB ทั้งหมด
       const { data: s } = await supabase.from('stores').select('*').order('name');
       const { data: p } = await supabase.from('product_presets').select('*').order('name');
       const { data: c } = await supabase.from('warranty_conditions').select('*').order('title');
+      const { data: ch } = await supabase.from('sales_channels').select('*').order('name'); // เพิ่มบรรทัดนี้
       
       setStoreOptions(s || []);
       setProductPresets(p || []);
       setConditionOptions(c || []);
+      setChannelOptions(ch || []); // set state
 
-      // 2. ดึงข้อมูลออเดอร์ที่จะแก้ไข
+      // 3. ดึงข้อมูลออเดอร์
       if (params?.id) {
         const { data: res } = await supabase.from('warranties').select('*').eq('id', params.id).single();
         if (res) {
@@ -67,7 +70,6 @@ export default function EditOrder() {
     fetchAllData();
   }, [params?.id]);
 
-  // ฟังก์ชันเลือกสินค้าจาก Preset
   const handleSelectPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const item = productPresets.find(p => p.id.toString() === e.target.value);
     if (item) {
@@ -85,21 +87,6 @@ export default function EditOrder() {
       newData.expiry_date = format(addMonths(parseISO(newData.purchase_date), parseInt(newData.warranty_months)), 'yyyy-MM-dd');
     }
     setFormData(newData);
-  };
-
-  const startScanner = () => {
-    setIsScanning(true);
-    setTimeout(() => {
-      const scanner = new Html5QrcodeScanner("reader-edit", { 
-        fps: 25, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0,
-        videoConstraints: { facingMode: { exact: "environment" } } 
-      }, false);
-      scanner.render((txt) => {
-        setFormData(prev => ({ ...prev, serial_number: txt }));
-        setIsScanning(false);
-        scanner.clear();
-      }, () => {});
-    }, 400);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -134,7 +121,6 @@ export default function EditOrder() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 1. Product Info Card */}
           <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
             <div className="flex justify-between items-center border-b border-slate-50 pb-3">
                <h3 className="font-bold flex items-center gap-2 text-slate-800"><Package size={18} className="text-blue-500"/> ข้อมูลสินค้า</h3>
@@ -159,7 +145,9 @@ export default function EditOrder() {
               <label className="text-xs font-bold text-slate-400">Serial Number (S/N)</label>
               <div className="flex gap-2">
                 <input required type="text" className="w-full p-3 bg-slate-50 rounded-xl outline-none font-mono font-bold text-blue-600 focus:ring-2 focus:ring-blue-100" value={formData.serial_number} onChange={e => setFormData({...formData, serial_number: e.target.value})} />
-                <button type="button" onClick={startScanner} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"><QrCode size={20} /></button>
+                <button type="button" onClick={() => setIsScanning(true)} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors">
+                  <QrCode size={20} />
+                </button>
               </div>
             </div>
             
@@ -172,7 +160,6 @@ export default function EditOrder() {
             </div>
           </div>
 
-          {/* 2. Warranty Info Card */}
           <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
             <h3 className="font-bold border-b border-slate-50 pb-3 flex items-center gap-2 text-slate-800"><ShieldCheck size={18} className="text-emerald-500"/> ข้อมูลการรับประกัน</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -195,7 +182,6 @@ export default function EditOrder() {
             </div>
           </div>
 
-          {/* 3. Customer Info Card (เพิ่มกลับมาให้แล้ว) */}
           <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
             <h3 className="font-bold border-b border-slate-50 pb-3 flex items-center gap-2 text-slate-800"><User size={18} className="text-orange-500"/> ข้อมูลลูกค้าและการจัดส่ง</h3>
             
@@ -212,14 +198,19 @@ export default function EditOrder() {
                    {storeOptions.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                  </select>
                </div>
+               
+               {/* 3. Dropdown ช่องทางขายแบบ Dynamic */}
                <div className="space-y-1">
                  <label className="text-xs font-bold text-slate-400 flex items-center gap-1"><ShoppingBag size={12}/> ช่องทางขาย</label>
-                 <select className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold cursor-pointer" value={formData.sales_channel || ''} onChange={e => setFormData({...formData, sales_channel: e.target.value})}>
+                 <select 
+                   className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold cursor-pointer" 
+                   value={formData.sales_channel || ''} 
+                   onChange={e => setFormData({...formData, sales_channel: e.target.value})}
+                 >
                    <option value="">-- เลือกช่องทาง --</option>
-                   <option value="Shopee">Shopee</option>
-                   <option value="Lazada">Lazada</option>
-                   <option value="หน้าร้าน">หน้าร้าน</option>
-                   <option value="อื่นๆ">อื่นๆ</option>
+                   {channelOptions.map(c => (
+                     <option key={c.id} value={c.name}>{c.name}</option>
+                   ))}
                  </select>
                </div>
             </div>
@@ -230,16 +221,14 @@ export default function EditOrder() {
           </button>
         </form>
 
-        {/* Scanner Overlay */}
-        {isScanning && (
-          <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
-            <div className="bg-white p-6 rounded-[2.5rem] w-full max-w-xs shadow-2xl animate-in zoom-in-95">
-              <h3 className="font-black text-center mb-4 flex items-center justify-center gap-2 text-slate-800"><QrCode size={20}/> Scan S/N</h3>
-              <div id="reader-edit" className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"></div>
-              <button onClick={()=>setIsScanning(false)} className="w-full mt-6 p-4 bg-slate-100 text-slate-600 rounded-2xl font-bold flex justify-center gap-2 hover:bg-slate-200 active:scale-95 transition-all"><X size={18}/> Close</button>
-            </div>
-          </div>
-        )}
+        <QRScanner 
+          isOpen={isScanning} 
+          onClose={() => setIsScanning(false)}
+          onScan={(code) => {
+             setFormData(prev => ({ ...prev, serial_number: code }));
+             setIsScanning(false);
+          }}
+        />
       </div>
     </div>
   );
